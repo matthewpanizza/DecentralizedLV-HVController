@@ -10,10 +10,17 @@
 #include "Particle.h"
 #include "DecentralizedLV-Boards/DecentralizedLV-Boards.h"
 
+#define CHARGE_ENABLE       D3
+#define DISCHARGE_ENABLE    D4
+#define BMS_FAULT           A0      //BMS Fault input pin
+
 // Let Device OS manage the connection to the Particle Cloud
 SYSTEM_MODE(MANUAL);
 
-CAN_Controller canController;
+SYSTEM_THREAD(DISABLED);
+
+CAN_Controller hvCanController;
+CAN_Controller lvCanController;
 
 DashController_CAN dashController(DASH_CONTROL_ADDR);
 
@@ -23,17 +30,41 @@ PowerController_CAN powerController(POWER_CONTROL_ADDR);
 void setup() {
     Serial.begin(115200);
 
-    canController.begin(CAN_500KBPS, S4);
-    canController.addFilter(powerController.boardAddress);   //Allow incoming messages from Power Controller
-    canController.addFilter(dashController.boardAddress);   //Allow incoming messages from Power Controller
+    RGB.control(true);
+    RGB.color(255,255,255);
+
+    pinMode(CHARGE_ENABLE, OUTPUT);     //Set up the FETs at outputs.
+    pinMode(DISCHARGE_ENABLE, OUTPUT);
+    pinMode(BMS_FAULT, INPUT);
+
+    lvCanController.begin(CAN_500KBPS, S4);
+    lvCanController.addFilter(powerController.boardAddress);   //Allow incoming messages from Power Controller
+    lvCanController.addFilter(dashController.boardAddress);   //Allow incoming messages from Power Controller
+
+    hvCanController.begin(CAN_500KBPS, S3);
+    hvCanController.addFilter(powerController.boardAddress);   //Allow incoming messages from Power Controller
+    hvCanController.addFilter(dashController.boardAddress);   //Allow incoming messages from Power Controller
+    
 }
 
 // loop() runs over and over again, as quickly as it can execute.
 void loop() {
-  // The core of your code will likely live here.
 
-  // Example: Publish event to cloud every 10 seconds. Uncomment the next 3 lines to try it!
-  // Log.info("Sending Hello World to the cloud!");
-  // Particle.publish("Hello world!");
-  // delay( 10 * 1000 ); // milliseconds and blocking - see docs for more info!
+    LV_CANMessage rxLVMessage;
+    LV_CANMessage rxHVMessage;
+
+    if(lvCanController.receive(rxLVMessage)){
+        Serial.printlnf("Got LV CAN Message. ID: 0x%x", rxLVMessage.addr);
+        powerController.receiveCANData(rxLVMessage);
+    }
+
+    if(hvCanController.receive(rxHVMessage)){
+        Serial.printlnf("Got HV CAN Message. ID: 0x%x", rxHVMessage.addr);
+        
+    }
+
+    digitalWrite(CHARGE_ENABLE, powerController.Acc);
+    digitalWrite(DISCHARGE_ENABLE, powerController.Ign);
+    
+    delay(10);
 }
